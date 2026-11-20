@@ -39,7 +39,8 @@ def send_email(msg):
     m["Subject"] = "BMS ALERT: Avengers Doomsday"
     m["From"] = m["To"] = GMAIL
     m.set_content(msg)
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+    with smtplib.SMTP("smtp.gmail.com", 587) as s:
+        s.starttls()
         s.login(GMAIL, GMAIL_APP_PASSWORD)
         s.send_message(m)
 
