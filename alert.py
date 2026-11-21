@@ -1,24 +1,30 @@
-import os, json, smtplib, requests
-from email.message import EmailMessage
+import os, re, json, requests
+from xml.sax.saxutils import escape
 from playwright.sync_api import sync_playwright
 from twilio.rest import Client
 
-BASE_URL = "https://in.bookmyshow.com/movies/chennai/avengers-doomsday/buytickets/ET00526306/"
-QUERY = "?etCodes=*&language=english&refEventCode=ET00526306"
-DATES = ["20261217", "20261218", "20261219", "20261220"]
-THEATRES = [
-    "GK Cinemas RGB",
-    "INOX National",
-    "AGS Cinemas: Maduravoyal",
-    "AGS Cinemas: Villivakkam",
-    "SB Cinemas",
-]
-
 E = os.environ
 TG_TOKEN, TG_CHAT_ID = E["TG_TOKEN"], E["TG_CHAT_ID"]
-GMAIL, GMAIL_APP_PASSWORD = E["GMAIL"], E["GMAIL_APP_PASSWORD"]
 TW_SID, TW_TOKEN = E["TW_SID"], E["TW_TOKEN"]
-TW_NUMBER, MY_PHONE, TW_WHATSAPP = E["TW_NUMBER"], E["MY_PHONE"], E["TW_WHATSAPP"]
+TW_NUMBER, MY_PHONE = E["TW_NUMBER"], E["MY_PHONE"]
+
+DATES = ["20261217", "20261218", "20261219", "20261220"]
+URL = "https://in.bookmyshow.com/movies/chennai/avengers-doomsday/buytickets/{code}/{date}{query}"
+SITES = [
+    {"lang": "English", "code": "ET00526306",
+     "query": "?etCodes=*&language=english&refEventCode=ET00526306"},
+    {"lang": "Tamil", "code": "ET00526312",
+     "query": "?etCodes=ET00526312&language=tamil&refEventCode=ET00526312"},
+]
+THEATRES = {
+    "GK Cinemas Porur": ["GK Cinemas RGB", "GK Cinemas RGB + Laser SRL 4D",
+                         "GK Cinemas RGB + Laser SRL 4D: Porur", "GK Cinemas", "GKCP"],
+    "INOX National": ["INOX National", "INOX: National", "National, Arcot Road"],
+    "AGS Maduravoyal": ["AGS Cinemas: Maduravoyal", "AGS Cinemas Maduravoyal"],
+    "AGS Villivakkam": ["AGS Cinemas: Villivakkam", "AGS Cinemas Villivakkam"],
+    "SB Cinemas": ["SB Cinemas", "SB Cinemas (Sri Bhagavathi)",
+                   "SB Cinemas (Sri Bhagavathi) 4K Atmos"],
+}
 
 twilio = Client(TW_SID, TW_TOKEN)
 STATE_FILE = "alerted.json"
@@ -30,59 +36,52 @@ def load_state():
     except Exception:
         return set()
 
-def save_state(s):
-    with open(STATE_FILE, "w") as f:
-        json.dump(sorted(s), f)
+def norm(s):
+    return " " + re.sub(r"[^a-z0-9]+", " ", s.lower()).strip() + " "
 
-def send_email(msg):
-    m = EmailMessage()
-    m["Subject"] = "BMS ALERT: Avengers Doomsday"
-    m["From"] = m["To"] = GMAIL
-    m.set_content(msg)
-    with smtplib.SMTP("smtp.gmail.com", 587) as s:
-        s.starttls()
-        s.login(GMAIL, GMAIL_APP_PASSWORD)
-        s.send_message(m)
+def telegram(msg):
+    try:
+        requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+                      data={"chat_id": TG_CHAT_ID, "text": msg}, timeout=30)
+    except Exception as e:
+        print("telegram failed:", e)
 
-def alert(msg):
-    for name, fn in [
-        ("telegram", lambda: requests.post(
-            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-            data={"chat_id": TG_CHAT_ID, "text": msg})),
-        ("email", lambda: send_email(msg)),
-        ("sms", lambda: twilio.messages.create(body=msg, from_=TW_NUMBER, to=MY_PHONE)),
-        ("whatsapp", lambda: twilio.messages.create(
-            body=msg, from_=TW_WHATSAPP, to=f"whatsapp:{MY_PHONE}")),
-        ("call", lambda: twilio.calls.create(
-            twiml=f"<Response><Say>{msg}</Say></Response>",
-            from_=TW_NUMBER, to=MY_PHONE)),
-    ]:
-        try:
-            fn()
-        except Exception as e:
-            print(f"{name} failed:", e)
+def call(speech):
+    try:
+        twilio.calls.create(
+            twiml=f"<Response><Say>{escape(speech)}</Say></Response>",
+            from_=TW_NUMBER, to=MY_PHONE)
+    except Exception as e:
+        print("call failed:", e)
 
 state = load_state()
-
 if E.get("SEND_TEST") == "true":
-    alert("GitHub test: alert system is working.")
+    telegram("GitHub test: alert system is working.")
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page()
     for date in DATES:
-        try:
-            page.goto(BASE_URL + date + QUERY, timeout=60000)
-            page.wait_for_timeout(5000)
-            text = page.inner_text("body").lower()
-            print(date, "| page text starts:", text[:150].replace("\n", " "))
-            for t in THEATRES:
-                key = f"{date}|{t}"
-                if t.lower() in text and key not in state:
-                    state.add(key)
-                    alert(f"Shows OPEN at {t} on {date[6:]} Dec! Book 3 seats, not front rows: {BASE_URL + date + QUERY}")
-        except Exception as e:
-            print(date, "error:", e)
+        for site in SITES:
+            try:
+                link = URL.format(code=site["code"], date=date, query=site["query"])
+                page.goto(link, timeout=60000)
+                page.wait_for_timeout(5000)
+                raw = page.inner_text("body")
+                if "you have been blocked" in raw.lower():
+                    print(date, site["lang"], "BLOCKED by BookMyShow")
+                    continue
+                print(date, site["lang"], "page loaded OK")
+                text = norm(raw)
+                for name, aliases in THEATRES.items():
+                    key = f"{date}|{site['lang']}|{name}"
+                    if key not in state and any(norm(a) in text for a in aliases):
+                        state.add(key)
+                        telegram(f"SHOWS OPEN: {name} ({site['lang']}) on {date[6:]} Dec. Book 3 seats, not front rows.\n{link}")
+                        call(f"Avengers Doomsday bookings are open at {name}, {site['lang']}, on {date[6:]} December. Check Telegram.")
+            except Exception as e:
+                print(date, site["lang"], "error:", e)
     browser.close()
 
-save_state(state)
+with open(STATE_FILE, "w") as f:
+    json.dump(sorted(state), f)
