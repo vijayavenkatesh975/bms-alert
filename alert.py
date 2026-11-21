@@ -120,6 +120,7 @@ def check(page, lang, date, state):
 
 
 def main():
+    send_telegram("Test: GitHub Actions is working.")
     state = load_state()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
