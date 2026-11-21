@@ -26,6 +26,32 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent
+
+
+def load_dotenv(path=ROOT / ".env"):
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.strip()
+            if val.startswith('"'):
+                end_quote = val.find('"', 1)
+                val = val[1:end_quote] if end_quote != -1 else val.strip('"')
+            elif val.startswith("'"):
+                end_quote = val.find("'", 1)
+                val = val[1:end_quote] if end_quote != -1 else val.strip("'")
+            else:
+                val = val.split("#", 1)[0].strip()
+            if key and key not in os.environ:
+                os.environ[key] = val
+
+
+load_dotenv()
 CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", ROOT / "config.json"))
 STATE_PATH = Path(os.environ.get("STATE_PATH", ROOT / "state.json"))
 
@@ -82,16 +108,24 @@ def load_config():
     if os.environ.get("HEADERS_JSON"):
         cfg["headers"] = json.loads(os.environ["HEADERS_JSON"])
 
+    # Support single requested_date or list requested_dates
+    dates = cfg.get("requested_dates") or ([cfg["requested_date"]] if cfg.get("requested_date") else [])
+    if dates and not cfg.get("requested_date"):
+        cfg["requested_date"] = dates[0]
+
     # The BMS date is embedded in the URL, so build the URL from the template
     # and the (possibly overridden) requested_date. Set REQUESTED_DATE=20260717
     # to point everything at the 17th for a live end-to-end test.
     if cfg.get("url_template") and cfg.get("requested_date"):
         cfg["target_url"] = cfg["url_template"].format(date=cfg["requested_date"])
 
-    required = ["target_url", "telegram_bot_token", "telegram_chat_id"]
+    required = ["telegram_bot_token", "telegram_chat_id"]
+    if not cfg.get("target_url") and not (cfg.get("url_template") and dates):
+        required.append("target_url")
     detector = cfg.get("detector")
     if detector in ("bms_date", "venue_date"):
-        required.append("requested_date")
+        if not dates:
+            required.append("requested_date")
     elif detector != "venue_date":
         required.append("theatre")
     if detector == "venue_date" and not (cfg.get("venue_code") or cfg.get("venue_codes")):
@@ -252,49 +286,59 @@ def is_available_generic(page_text, cfg):
 
 def main():
     cfg = load_config()
-    state = load_json(STATE_PATH, default={"available": False}) or {"available": False}
+    state = load_json(STATE_PATH, default={}) or {}
+    seen_available = set(state.get("available_dates") or ([cfg.get("requested_date")] if state.get("available") else []))
 
-    target_desc = cfg.get("theatre") or cfg.get("requested_date", "target")
-    label = f"{cfg.get('movie', 'movie')} @ {target_desc}"
+    dates = cfg.get("requested_dates") or ([cfg["requested_date"]] if cfg.get("requested_date") else ["target"])
+    new_available = set(seen_available)
 
-    try:
-        page = fetch(cfg)
-    except requests.RequestException as exc:
-        # Transient network/blocking errors shouldn't crash the workflow.
-        print(f"[{label}] fetch failed: {exc}")
-        return 0
+    for rd in dates:
+        date_cfg = dict(cfg)
+        date_cfg["requested_date"] = rd
+        if date_cfg.get("url_template") and rd != "target":
+            date_cfg["target_url"] = date_cfg["url_template"].format(date=rd)
 
-    available = is_available(page, cfg)
-    print(f"[{label}] available={available} (was {state.get('available')})")
+        target_desc = date_cfg.get("theatre") or rd
+        label = f"{date_cfg.get('movie', 'movie')} @ {target_desc}"
 
-    if available and not state.get("available"):
-        if cfg.get("detector") in ("bms_date", "venue_date"):
-            rd = cfg["requested_date"]
-            pretty = f"{rd[6:8]}-{rd[4:6]}-{rd[0:4]}"
-            venue = cfg.get("venue_label") or cfg.get("venue_code") or ""
-            venue_line = f"Theatre: {venue}\n" if venue else ""
-            msg = (
-                f"🎬 Booking just OPENED!\n\n"
-                f"{cfg.get('movie', 'Movie')}\n"
-                f"{venue_line}"
-                f"Date: {pretty}\n\n"
-                f"Book here: {cfg['target_url']}"
-            )
-        else:
-            msg = (
-                f"🎬 Booking is OPEN!\n\n"
-                f"{cfg.get('movie', 'Movie')}\n"
-                f"Theatre: {cfg['theatre']}\n\n"
-                f"Book here: {cfg['target_url']}"
-            )
-        send_telegram(cfg["telegram_bot_token"], cfg["telegram_chat_id"], msg)
-        print(f"[{label}] notification sent")
+        try:
+            page = fetch(date_cfg)
+        except requests.RequestException as exc:
+            # Transient network/blocking errors shouldn't crash the workflow.
+            print(f"[{label}] fetch failed: {exc}")
+            continue
 
-    # Persist current state so we don't re-alert every run.
-    if available != state.get("available"):
-        state["available"] = available
-        state["checked_at"] = int(time.time())
-        save_json(STATE_PATH, state)
+        available = is_available(page, date_cfg)
+        was_avail = rd in seen_available
+        print(f"[{label}] available={available} (was {was_avail})")
+
+        if available and not was_avail:
+            new_available.add(rd)
+            if date_cfg.get("detector") in ("bms_date", "venue_date"):
+                pretty = f"{rd[6:8]}-{rd[4:6]}-{rd[0:4]}" if len(rd) == 8 else rd
+                venue = date_cfg.get("venue_label") or date_cfg.get("venue_code") or ""
+                venue_line = f"Theatre: {venue}\n" if venue else ""
+                msg = (
+                    f"🎬 Booking just OPENED!\n\n"
+                    f"{date_cfg.get('movie', 'Movie')}\n"
+                    f"{venue_line}"
+                    f"Date: {pretty}\n\n"
+                    f"Book here: {date_cfg['target_url']}"
+                )
+            else:
+                msg = (
+                    f"🎬 Booking is OPEN!\n\n"
+                    f"{date_cfg.get('movie', 'Movie')}\n"
+                    f"Theatre: {date_cfg['theatre']}\n\n"
+                    f"Book here: {date_cfg['target_url']}"
+                )
+            send_telegram(date_cfg["telegram_bot_token"], date_cfg["telegram_chat_id"], msg)
+            print(f"[{label}] notification sent")
+
+    state["available_dates"] = sorted(new_available)
+    state["available"] = bool(new_available)
+    state["checked_at"] = int(time.time())
+    save_json(STATE_PATH, state)
 
     return 0
 

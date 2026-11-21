@@ -1,10 +1,10 @@
-# Movie-Alert
+# bms-alert
 
 Get a **phone call** (plus a Telegram message) the moment tickets open — or sold-out
 seats come back — for a movie at the theatres you care about, on **District** and
 **BookMyShow**. Runs on **GitHub Actions**; nothing to keep running on your machine.
 
-Currently configured for **Avengers: Doomsday · 17 Dec 2026 · Chennai · English 3D · 2 seats**:
+Currently configured for **Avengers: Doomsday · 17, 18, 19, 20 Dec 2026 · Chennai · English 3D · 1 seat**:
 
 | Priority | Theatres | Calls when |
 |---|---|---|
@@ -62,7 +62,7 @@ PAT scoped to this repo with **Actions: Read and write**, then a cron-job.org jo
 
 | Field | Value |
 |---|---|
-| URL | `https://api.github.com/repos/<you>/Movie-Alert/actions/workflows/booking-watch.yml/dispatches` |
+| URL | `https://api.github.com/repos/<you>/bms-alert/actions/workflows/booking-watch.yml/dispatches` |
 | Method / Schedule | `POST`, every 5–10 min |
 | Headers | `Accept: application/vnd.github+json`, `Authorization: Bearer <PAT>`, `X-GitHub-Api-Version: 2022-11-28` |
 | Body | `{"ref":"main"}` |

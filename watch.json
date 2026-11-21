@@ -1,6 +1,11 @@
 {
   "movie": "Avengers: Doomsday",
-  "date": "2026-12-17",
+  "dates": [
+    "2026-12-17",
+    "2026-12-18",
+    "2026-12-19",
+    "2026-12-20"
+  ],
   "seats_needed": 1,
   "language": "English",
   "format_must_include": [

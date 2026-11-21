@@ -55,8 +55,8 @@ jobs:
           CALL_TO: ${{ secrets.CALL_TO }}
           LOOP_MINUTES: "25"
         run: |
-          git config user.name "Sabarinathan07"
-          git config user.email "64265337+Sabarinathan07@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           end=$(( $(date +%s) + LOOP_MINUTES * 60 ))
           while [ "$(date +%s)" -lt "$end" ]; do
             started=$(date +%s)
