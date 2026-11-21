@@ -3,16 +3,12 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
-    inputs:
-      send_test:
-        type: boolean
-        default: false
 
 permissions:
   contents: write
 
 concurrency:
-  group: bms
+  group: bms-check
   cancel-in-progress: false
 
 jobs:
@@ -24,11 +20,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install playwright requests twilio
-      - run: python -m playwright install --with-deps chromium
+      - run: pip install requests twilio playwright python-dotenv
+      - run: playwright install --with-deps chromium
       - run: python alert.py
         env:
-          SEND_TEST: ${{ inputs.send_test }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TW_SID: ${{ secrets.TW_SID }}
@@ -37,8 +32,7 @@ jobs:
           MY_PHONE: ${{ secrets.MY_PHONE }}
       - name: Save state
         run: |
-          git config user.name "bot"
-          git config user.email "bot@users.noreply.github.com"
+          git config user.name bot
+          git config user.email bot@users.noreply.github.com
           git add alerted.json
-          git commit -m "update state" || echo "no changes"
-          git push
+          git diff --staged --quiet || (git commit -m "update state" && git push)
