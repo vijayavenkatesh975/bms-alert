@@ -31,13 +31,10 @@ jobs:
           SEND_TEST: ${{ inputs.send_test }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          GMAIL: ${{ secrets.GMAIL }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           TW_SID: ${{ secrets.TW_SID }}
           TW_TOKEN: ${{ secrets.TW_TOKEN }}
           TW_NUMBER: ${{ secrets.TW_NUMBER }}
           MY_PHONE: ${{ secrets.MY_PHONE }}
-          TW_WHATSAPP: ${{ secrets.TW_WHATSAPP }}
       - name: Save state
         run: |
           git config user.name "bot"
