@@ -6,7 +6,17 @@
     "2026-12-19",
     "2026-12-20"
   ],
-  "seats_needed": 1,
+  "seats_needed": 3,
+  "exclude_front_rows": true,
+  "exclude_areas": [
+    "budget",
+    "normal",
+    "second class",
+    "2nd class",
+    "lower",
+    "silver",
+    "front"
+  ],
   "language": "English",
   "format_must_include": [
     "3D"

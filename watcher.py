@@ -165,7 +165,12 @@ def district_sessions(cfg, target_date):
                     "total": int(s.get("total") or 0),
                     "status": s.get("seatStatus") or "",
                     "areas": [
-                        (a.get("label"), a.get("sAvail"), a.get("price"))
+                        {
+                            "label": (a.get("label") or "").strip(),
+                            "avail": int(a.get("sAvail") or 0),
+                            "total": int(a.get("sTotal") or 0),
+                            "price": float(a.get("price") or 0),
+                        }
                         for a in s.get("areas") or []
                     ],
                 })
@@ -211,6 +216,41 @@ def session_ok(cfg, g, s):
     if g.get("format_match") and not re.search(g["format_match"], s["fmt"], re.I):
         return False
     return True
+
+
+def is_front_row_area(area, all_areas, cfg):
+    """Return True if the area is a front-row (neck-strain / undesirable) section."""
+    if not cfg.get("exclude_front_rows", True):
+        return False
+
+    label = (area.get("label") or "").strip().lower()
+    exclude_patterns = cfg.get(
+        "exclude_areas",
+        ["budget", "normal", "second class", "2nd class", "lower", "silver", "front"]
+    )
+    for pat in exclude_patterns:
+        if re.search(r"\b" + re.escape(pat) + r"\b", label, re.I):
+            return True
+
+    # Price-based check: if multiple price tiers exist, the lowest tier
+    # in Chennai theatres is statutory front-row (< ₹150 vs ₹200+)
+    prices = [a.get("price", 0) for a in all_areas if a.get("price", 0) > 0]
+    if len(set(prices)) > 1:
+        min_price = min(prices)
+        max_price = max(prices)
+        if area.get("price") == min_price and max_price >= min_price * 1.4:
+            return True
+
+    return False
+
+
+def get_qualifying_areas(areas, need, cfg):
+    """Return list of non-front areas that have at least `need` seats available."""
+    qualifying = []
+    for a in areas:
+        if not is_front_row_area(a, areas, cfg) and a["avail"] >= need:
+            qualifying.append(a)
+    return qualifying
 
 
 # --------------------------------------------------------------------------- #
@@ -304,11 +344,11 @@ def check_once(cfg, dry_run=False):
     state = load_json(STATE_PATH, {})
     first_run = not state.get("initialized")
     seen_open = set(state.get("open", []))   # "district:<cinema_id>:<date>" / "bms:<code>:<date>"
-    prev_avail = state.get("avail", {})      # "district:<cid>:<date>:<sid>" -> int
-    need = int(cfg.get("seats_needed", 2))
+    prev_avail = state.get("avail", {})      # "district:<cid>:<date>:<sid>" -> int (good seats only)
+    need = int(cfg.get("seats_needed", 3))
     cutoff = cfg.get("seat_alert_shows_before")  # "HH:MM" or None
 
-    events = []      # (priority, text)
+    events = []      # (priority, call_summary, tg_msg)
     snapshot = []    # human-readable view of what matched
     new_avail = dict(prev_avail)
 
@@ -336,27 +376,56 @@ def check_once(cfg, dry_run=False):
 
                 okey = f"district:{cid}:{target_date}"
                 if g.get("alert_on_open") and okey not in seen_open:
-                    events.append((0, f"OPENED on District: {cname} ({target_date})\n  {ss[0]['fmt']} | {shows}"))
+                    d_url = cfg["district_url"].format(date=target_date)
+                    call_summary = f"OPENED on District: {cname} for {target_date}"
+                    tg_msg = (
+                        f"🎟️ [District] Booking OPEN!\n\n"
+                        f"🏢 Theatre: {cname}\n"
+                        f"🎬 Movie: {cfg['movie']}\n"
+                        f"📅 Date: {target_date}\n"
+                        f"🎭 Format: {ss[0]['fmt']}\n"
+                        f"⏰ Shows: {shows}\n\n"
+                        f"🔗 Book on District:\n{d_url}"
+                    )
+                    events.append((0, call_summary, tg_msg))
                 seen_open.add(okey)
 
                 for x in ss:
+                    qualifying = get_qualifying_areas(x["areas"], need, cfg)
+                    good_avail = sum(a["avail"] for a in qualifying)
                     k = f"district:{cid}:{target_date}:{x['sid']}"
-                    new_avail[k] = x["avail"]
+                    new_avail[k] = good_avail
+
                     if not g.get("alert_on_seats"):
                         continue
                     if cutoff and x["time"] > cutoff:
                         continue
                     before = prev_avail.get(k)
                     # Fire when the show goes from "not enough" to "enough", or when
-                    # a batch of seats is released (jump of >= need).
-                    if x["avail"] >= need and (
+                    # a batch of seats is released (jump of >= need in non-front sections).
+                    if good_avail >= need and (
                         before is None and not first_run and okey in state.get("open", [])
                         or (before is not None and before < need)
-                        or (before is not None and x["avail"] - before >= need)
+                        or (before is not None and good_avail - before >= need)
                     ):
-                        areas = ", ".join(f"{a[0]} {a[1]}" for a in x["areas"])
-                        events.append((1, f"SEATS BACK on District: {cname} ({target_date}) {x['time_text']} "
-                                          f"{x['fmt']} -> {x['avail']} seats ({areas})"))
+                        d_url = cfg["district_url"].format(date=target_date)
+                        call_summary = f"Seats available on District: {cname} {x['time_text']}"
+                        area_lines = "\n".join(
+                            f"  • {a['label']}: {a['avail']} seats available (₹{a['price']:.2f})"
+                            for a in qualifying
+                        )
+                        tg_msg = (
+                            f"🚨 [District] SEATS AVAILABLE ({need}+ Seats Together)\n\n"
+                            f"🏢 Theatre: {cname}\n"
+                            f"🎬 Movie: {cfg['movie']}\n"
+                            f"📅 Date: {target_date}\n"
+                            f"⏰ Show: {x['time_text']} ({x['fmt']})\n\n"
+                            f"💺 Available Section(s):\n"
+                            f"{area_lines}\n"
+                            f"🚫 Front rows excluded\n\n"
+                            f"🔗 Book on District:\n{d_url}"
+                        )
+                        events.append((1, call_summary, tg_msg))
 
     prev_avail = new_avail
 
@@ -389,7 +458,18 @@ def check_once(cfg, dry_run=False):
                     snapshot.append(f"[BMS] {slug} ({code}) is listing {target_date}")
                     okey = f"bms:{code}:{target_date}"
                     if g.get("alert_on_open") and okey not in seen_open:
-                        events.append((0, f"OPENED on BookMyShow: {slug} ({code}) for {target_date}"))
+                        b_url = cfg["bms_url"].format(yyyymmdd=target_date.replace("-", ""), date=target_date)
+                        theatre_title = slug.replace("-", " ").title()
+                        call_summary = f"OPENED on BookMyShow: {theatre_title} for {target_date}"
+                        tg_msg = (
+                            f"🎟️ [BookMyShow] Booking OPEN!\n\n"
+                            f"🏢 Theatre: {theatre_title} ({code})\n"
+                            f"🎬 Movie: {cfg['movie']}\n"
+                            f"📅 Date: {target_date}\n\n"
+                            f"🎉 Shows are now listed on BookMyShow for this date!\n\n"
+                            f"🔗 Book on BookMyShow:\n{b_url}"
+                        )
+                        events.append((0, call_summary, tg_msg))
                     seen_open.add(okey)
         if bms_success:
             last_bms = int(time.time())
@@ -407,7 +487,9 @@ def check_once(cfg, dry_run=False):
     }
 
     if dry_run:
-        print(f"[dry-run] events: {events}")
+        print(f"\n[dry-run] {len(events)} event(s) generated:")
+        for p, summary, tg_msg in events:
+            print(f"\n--- [Event priority {p}] {summary} ---\n{tg_msg}")
         return
 
     dates_label = ", ".join(target_dates)
@@ -419,20 +501,16 @@ def check_once(cfg, dry_run=False):
         events = []
 
     if events:
-        events.sort()
-        district_links = "\n".join(
-            f"District ({d}): {cfg['district_url'].format(date=d)}" for d in target_dates
-        ) if cfg.get("district_url") else ""
-        bms_links = "\n".join(
-            f"BMS ({d}): {cfg['bms_url'].format(yyyymmdd=d.replace('-', ''), date=d)}" for d in target_dates
-        ) if cfg.get("bms_url") else ""
-        links = f"\n\n{district_links}\n{bms_links}".strip()
-        send_telegram(f"🚨 {cfg['movie']} ({dates_label})\n\n" + "\n\n".join(t for _, t in events) + (f"\n\n{links}" if links else ""))
+        events.sort(key=lambda e: e[0])
+        # Send individual, dedicated message for each theatre/event
+        for _, _, tg_msg in events:
+            send_telegram(tg_msg)
+            time.sleep(0.35)
 
         cooldown = int(cfg.get("call_cooldown_minutes", 10)) * 60
-        if time.time() - new_state["last_call"] >= cooldown or any(p == 0 for p, _ in events):
-            top = events[0][1].split("\n")[0]
-            spoken = f"Alert. {cfg['movie']} tickets. {top}. Open Telegram and book now."
+        if time.time() - new_state["last_call"] >= cooldown or any(p == 0 for p, _, _ in events):
+            top_summary = events[0][1]
+            spoken = f"Alert. {cfg['movie']} tickets. {top_summary}. Open Telegram and book now."
             if place_call(spoken):
                 new_state["last_call"] = int(time.time())
 
