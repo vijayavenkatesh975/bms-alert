@@ -334,10 +334,16 @@ def callmebot_call(spoken):
             params={"user": user, "text": spoken[:250], "lang": "en-IN-Standard-A", "rpt": 3},
             timeout=120,
         )
-        body = re.sub(r"<[^>]+>", " ", r.text)
-        err = re.search(r"Error:[^\n]{0,120}", body)
-        print(f"[callmebot] {r.status_code} {err.group(0) if err else 'call started'}")
-        return r.ok and not err
+        body = re.sub(r"<script.*?</script>", "", r.text, flags=re.DOTALL | re.IGNORECASE)
+        body = re.sub(r"<style.*?</style>", "", body, flags=re.DOTALL | re.IGNORECASE)
+        body = re.sub(r"<[^>]+>", " ", body)
+        is_error = "not authorized" in body.lower() or "error" in body.lower() or "flood" in body.lower()
+        if is_error:
+            clean_msg = " ".join(body.split())[:160]
+            print(f"[callmebot] {clean_msg}")
+            return False
+        print(f"[callmebot] {r.status_code} call started")
+        return r.ok
     except requests.RequestException as e:
         print(f"[callmebot] failed: {e}")
         return False
