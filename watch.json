@@ -6,6 +6,8 @@
     "2026-12-19",
     "2026-12-20"
   ],
+  "show_time_after": "09:00",
+  "show_time_before": "16:00",
   "seats_needed": 3,
   "exclude_front_rows": true,
   "exclude_areas": [
@@ -25,34 +27,26 @@
   "bms_url": "https://in.bookmyshow.com/movies/chennai/avengers-doomsday/buytickets/ET00526287/{yyyymmdd}",
   "groups": [
     {
-      "name": "GK Cinemas Porur (first choice)",
-      "match": "\\bgk\\b.*porur|porur.*\\bgk\\b",
+      "name": "GK Cinemas Porur",
+      "match": "\\bgk\\b",
       "alert_on_open": true,
       "alert_on_seats": true
     },
     {
       "name": "AGS Maduravoyal",
-      "match": "\\bags\\b.*maduravoyal|maduravoyal.*\\bags\\b",
+      "match": "\\bags\\b.*madh?urav[ao]y[ao]l|madh?urav[ao]y[ao]l.*\\bags\\b",
       "alert_on_open": true,
       "alert_on_seats": true
     },
     {
-      "name": "INOX Arcot Road",
-      "match": "\\binox\\b.*(arcot|national)|arcot.*\\binox\\b",
+      "name": "AGS Villivakkam",
+      "match": "\\bags\\b.*villivakkam|villivakkam.*\\bags\\b",
       "alert_on_open": true,
       "alert_on_seats": true
     },
     {
-      "name": "Backup: SB Cinemas / Vels",
+      "name": "SB Cinemas / Vels",
       "match": "\\bsb[ -]cinemas?\\b|\\bvels\\b",
-      "alert_on_open": true,
-      "alert_on_seats": true
-    },
-    {
-      "name": "Any Infinity Vision 3D theatre",
-      "match": ".",
-      "format_match": "infinity vision",
-      "bms": false,
       "alert_on_open": true,
       "alert_on_seats": true
     }

@@ -4,14 +4,14 @@ Get a **phone call** (plus a Telegram message) the moment tickets open — or so
 seats come back — for a movie at the theatres you care about, on **District** and
 **BookMyShow**. Runs on **GitHub Actions**; nothing to keep running on your machine.
 
-Currently configured for **Avengers: Doomsday · 17, 18, 19, 20 Dec 2026 · Chennai · English 3D · 1 seat**:
+Currently configured for **Avengers: Doomsday · 17, 18, 19, 20 Dec 2026 · Chennai · 9:00 AM – 4:00 PM shows only · 3 seats**:
 
-| Priority | Theatres | Calls when |
-|---|---|---|
-| 1 | GK Cinemas 4K 3D, Porur | opens · seats come back |
-| 2 | Any PVR / INOX **Infinity Vision 3D** | opens · sold-out early show releases ≥ 2 seats |
-| 3 | AGS Maduravoyal | opens · seats come back |
-| Backup | SB Cinemas, Vels | opens |
+| Theatres | Calls when |
+|---|---|
+| GK Cinemas, Porur | opens · 3+ seats together |
+| AGS Cinemas, Maduravoyal | opens · 3+ seats together |
+| AGS Cinemas, Villivakkam | opens · 3+ seats together |
+| SB Cinemas / Vels | opens · 3+ seats together |
 
 ## How it works
 

@@ -123,6 +123,24 @@ def get_target_dates(cfg):
     return [str(d) for d in dates]
 
 
+def extract_time_hhmm(s):
+    iso = s.get("showTimeISO") or s.get("showTimeLocal") or ""
+    if len(iso) >= 16 and "T" in iso:
+        return iso.split("T")[1][:5]
+    txt = s.get("showTimeText") or ""
+    m_time = re.match(r"(\d{1,2}):(\d{2})\s*(AM|PM)?", txt, re.I)
+    if m_time:
+        hr = int(m_time.group(1))
+        mn = m_time.group(2)
+        ampm = (m_time.group(3) or "").upper()
+        if ampm == "PM" and hr < 12:
+            hr += 12
+        elif ampm == "AM" and hr == 12:
+            hr = 0
+        return f"{hr:02d}:{mn}"
+    return ""
+
+
 # --------------------------------------------------------------------------- #
 # District
 # --------------------------------------------------------------------------- #
@@ -157,7 +175,7 @@ def district_sessions(cfg, target_date):
                     "cinema_id": cinema.get("id"),
                     "cinema": name,
                     "sid": s.get("sid"),
-                    "time": (s.get("showTimeISO") or "")[11:16],
+                    "time": extract_time_hhmm(s),
                     "time_text": s.get("showTimeText") or "",
                     "fmt": s.get("scrnFmt") or "",
                     "lang": s.get("lang") or "",
@@ -215,6 +233,15 @@ def session_ok(cfg, g, s):
             return False
     if g.get("format_match") and not re.search(g["format_match"], s["fmt"], re.I):
         return False
+    # Show timing filter: e.g. 09:00 to 16:00
+    stime = s.get("time")
+    if stime:
+        after = cfg.get("show_time_after")
+        before = cfg.get("show_time_before")
+        if after and stime < after:
+            return False
+        if before and stime > before:
+            return False
     return True
 
 
