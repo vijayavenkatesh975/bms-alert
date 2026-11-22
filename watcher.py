@@ -294,6 +294,17 @@ def send_telegram(text):
         timeout=30,
     )
     print(f"[telegram] {r.status_code}")
+    # Also forward via CallMeBot Telegram text for dual delivery
+    cm_user = os.environ.get("CALLMEBOT_TG_USER")
+    if cm_user:
+        try:
+            requests.get(
+                "https://api.callmebot.com/text.php",
+                params={"user": cm_user, "text": text[:1000]},
+                timeout=15,
+            )
+        except Exception:
+            pass
 
 
 def twilio_call(spoken):
